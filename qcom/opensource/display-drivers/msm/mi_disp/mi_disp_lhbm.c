@@ -350,10 +350,21 @@ static int mi_disp_lhbm_fod_set_disp_param(struct disp_lhbm_fod *lhbm_fod, u32 l
 		break;
 	}
 
-	atomic_set(&lhbm_fod->target_brightness, lhbm_value);
 	mutex_unlock(&panel->panel_lock);
 
 	rc = mi_dsi_display_set_disp_param(lhbm_fod->display, &ctl);
+	if (!rc) {
+		/*
+		 * target_brightness represents the state that was successfully
+		 * committed to the panel. Do not advance it before the display
+		 * transaction succeeds, otherwise a failed LHBM OFF can make a
+		 * later retry look like a duplicate while the panel is still on.
+		 */
+		atomic_set(&lhbm_fod->target_brightness, lhbm_value);
+	} else {
+		DISP_ERROR("failed to apply lhbm_value(%u), rc=%d, keep target_brightness(%d)\n",
+			lhbm_value, rc, atomic_read(&lhbm_fod->target_brightness));
+	}
 
 	return rc;
 }
@@ -450,8 +461,12 @@ static int mi_disp_lhbm_fod_thread_fn(void *arg)
 			kfree(entry);
 		}
 		if (atomic_read(&lhbm_fod->target_brightness) != lhbm_setting_event.lhbm_value) {
-			atomic_set(&lhbm_fod->target_brightness, lhbm_setting_event.lhbm_value);
-
+			/*
+			 * Do not update target_brightness here. The panel transaction can
+			 * still fail during screen wake/AOD transitions. The committed
+			 * state is updated by mi_disp_lhbm_fod_set_disp_param() only after
+			 * the display command succeeds.
+			 */
 			spin_unlock_irqrestore(&lhbm_fod->spinlock, flag);
 
 			if (lhbm_setting_event.lhbm_value == LHBM_TARGET_BRIGHTNESS_OFF_FINGER_UP ||
