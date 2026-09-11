@@ -2095,9 +2095,8 @@ static int mi_dsi_update_lhbm_cmd_87reg(struct dsi_panel *panel,
 		if (info->mipi_address != 0x87)
 			continue;
 
-		mi_dsi_panel_update_cmd_set(panel, cur_mode,
+		return mi_dsi_panel_update_cmd_set(panel, cur_mode,
 				type, info, alpha_buf, info->length);
-		return 0;
 	}
 
 	DISP_ERROR("[%s] missing 0x87 LHBM update entry for %s\n",
@@ -2269,9 +2268,8 @@ static int mi_dsi_update_lhbm_cmd_DF_reg(struct dsi_panel *panel,
 		if (info->mipi_address != 0xDF)
 			continue;
 
-		mi_dsi_panel_update_cmd_set(panel, cur_mode,
+		return mi_dsi_panel_update_cmd_set(panel, cur_mode,
 				type, info, df_reg_buf, sizeof(df_reg_buf));
-		return 0;
 	}
 
 	DISP_ERROR("[%s] missing 0xDF LHBM update entry for %s\n",
@@ -3037,21 +3035,21 @@ static int mi_dsi_panel_update_lhbm_white_param(struct dsi_panel * panel,
 
 		if (level == 110) {
 			if(flat_mode!= 0) {
-				mi_dsi_panel_update_cmd_set(panel, cur_mode, type, info,
+				rc = mi_dsi_panel_update_cmd_set(panel, cur_mode, type, info,
 				panel->mi_cfg.whitebuf_110_gir_on, sizeof(panel->mi_cfg.whitebuf_110_gir_on));
 			} else {
-				mi_dsi_panel_update_cmd_set(panel, cur_mode, type, info,
+				rc = mi_dsi_panel_update_cmd_set(panel, cur_mode, type, info,
 				panel->mi_cfg.whitebuf_110_gir_off, sizeof(panel->mi_cfg.whitebuf_110_gir_off));
 			}
 		} else if (level == 500) {
-			mi_dsi_panel_update_cmd_set(panel, cur_mode, type, info,
+			rc = mi_dsi_panel_update_cmd_set(panel, cur_mode, type, info,
 				panel->mi_cfg.greenbuf_500nit, sizeof(panel->mi_cfg.greenbuf_500nit));
 		} else {
 			if(flat_mode!= 0) {
-				mi_dsi_panel_update_cmd_set(panel, cur_mode, type, info,
+				rc = mi_dsi_panel_update_cmd_set(panel, cur_mode, type, info,
 				panel->mi_cfg.whitebuf_1000_gir_on, sizeof(panel->mi_cfg.whitebuf_1000_gir_on));
 			} else {
-				mi_dsi_panel_update_cmd_set(panel, cur_mode, type, info,
+				rc = mi_dsi_panel_update_cmd_set(panel, cur_mode, type, info,
 				panel->mi_cfg.whitebuf_1000_gir_off, sizeof(panel->mi_cfg.whitebuf_1000_gir_off));
 			}
 		}
