@@ -3426,8 +3426,10 @@ static int mi_dsi_panel_set_lhbm_fod_locked(struct dsi_panel *panel,
 		mi_dsi_update_51_mipi_cmd(panel,
 				DSI_CMD_SET_MI_LOCAL_HBM_NORMAL_WHITE_1000NIT, update_bl);
 
-		mi_dsi_update_lhbm_cmd_87reg(panel,
+		rc = mi_dsi_update_lhbm_cmd_87reg(panel,
 				DSI_CMD_SET_MI_LOCAL_HBM_NORMAL_WHITE_1000NIT, update_bl);
+		if (rc)
+			break;
 
 		mi_dsi_update_lhbm_cmd_63_C5_reg(panel,
 				DSI_CMD_SET_MI_LOCAL_HBM_NORMAL_WHITE_1000NIT, update_bl);
@@ -3436,15 +3438,20 @@ static int mi_dsi_panel_set_lhbm_fod_locked(struct dsi_panel *panel,
 			mi_dsi_update_lhbm_cmd_N16_PB(panel,
 				DSI_CMD_SET_MI_LOCAL_HBM_NORMAL_WHITE_1000NIT, update_bl);
 
-		mi_dsi_update_lhbm_cmd_DF_reg(panel,
+		rc = mi_dsi_update_lhbm_cmd_DF_reg(panel,
 				DSI_CMD_SET_MI_LOCAL_HBM_NORMAL_WHITE_1000NIT, update_bl);
+		if (rc)
+			break;
 
 		mi_dsi_update_lhbm_cmd_B2_reg(panel,
 				DSI_CMD_SET_MI_LOCAL_HBM_NORMAL_WHITE_1000NIT, update_bl);
 
-		mi_dsi_panel_update_lhbm_white_param(panel,
+		rc = mi_dsi_panel_update_lhbm_white_param(panel,
 				DSI_CMD_SET_MI_LOCAL_HBM_NORMAL_WHITE_1000NIT,
 				mi_cfg->feature_val[DISP_FEATURE_FLAT_MODE]);
+		if (rc)
+			break;
+
 		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_MI_LOCAL_HBM_NORMAL_WHITE_1000NIT);
 		break;
 	case LOCAL_HBM_NORMAL_WHITE_750NIT:
