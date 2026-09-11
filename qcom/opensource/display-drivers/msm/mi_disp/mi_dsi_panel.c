@@ -2082,22 +2082,27 @@ static int mi_dsi_update_lhbm_cmd_87reg(struct dsi_panel *panel,
 
 	info = cur_mode->priv_info->cmd_update[cmd_update_index];
 	cmd_update_count = cur_mode->priv_info->cmd_update_count[cmd_update_index];
-	for (j = 0; j < cmd_update_count; j++) {
+	if (!info || !cmd_update_count) {
+		DISP_ERROR("[%s] missing 0x87 LHBM update list for %s\n",
+			panel->type, cmd_set_prop_map[type]);
+		return -EINVAL;
+	}
+
+	for (j = 0; j < cmd_update_count; j++, info++) {
 		DISP_DEBUG("[%s] update [%s] mipi_address(0x%02X) index(%d) lenght(%d)\n",
 			panel->type, cmd_set_prop_map[info->type],
 			info->mipi_address, info->index, info->length);
-		if (info && info->mipi_address != 0x87) {
-			DISP_ERROR("[%s] error mipi address (0x%02X)\n", panel->type, info->mipi_address);
-			info++;
+		if (info->mipi_address != 0x87)
 			continue;
-		} else {
-			mi_dsi_panel_update_cmd_set(panel, cur_mode,
-					type, info, alpha_buf, info->length);
-			break;
-		}
+
+		mi_dsi_panel_update_cmd_set(panel, cur_mode,
+				type, info, alpha_buf, info->length);
+		return 0;
 	}
 
-	return 0;
+	DISP_ERROR("[%s] missing 0x87 LHBM update entry for %s\n",
+		panel->type, cmd_set_prop_map[type]);
+	return -EINVAL;
 }
 
 static int mi_dsi_update_lhbm_cmd_N16_PB(struct dsi_panel *panel,
@@ -2251,22 +2256,27 @@ static int mi_dsi_update_lhbm_cmd_DF_reg(struct dsi_panel *panel,
 
 	info = cur_mode->priv_info->cmd_update[cmd_update_index];
 	cmd_update_count = cur_mode->priv_info->cmd_update_count[cmd_update_index];
-	for (j = 0; j < cmd_update_count; j++) {
+	if (!info || !cmd_update_count) {
+		DISP_ERROR("[%s] missing 0xDF LHBM update list for %s\n",
+			panel->type, cmd_set_prop_map[type]);
+		return -EINVAL;
+	}
+
+	for (j = 0; j < cmd_update_count; j++, info++) {
 		DISP_DEBUG("[%s] update [%s] mipi_address(0x%02X) index(%d) lenght(%d)\n",
 			panel->type, cmd_set_prop_map[info->type],
 			info->mipi_address, info->index, info->length);
-		if (info && info->mipi_address != 0xDF) {
-			DISP_ERROR("[%s] error mipi address (0x%02X)\n", panel->type, info->mipi_address);
-			info++;
+		if (info->mipi_address != 0xDF)
 			continue;
-		} else {
-			mi_dsi_panel_update_cmd_set(panel, cur_mode,
-					type, info, df_reg_buf, sizeof(df_reg_buf));
-			break;
-		}
+
+		mi_dsi_panel_update_cmd_set(panel, cur_mode,
+				type, info, df_reg_buf, sizeof(df_reg_buf));
+		return 0;
 	}
 
-	return 0;
+	DISP_ERROR("[%s] missing 0xDF LHBM update entry for %s\n",
+		panel->type, cmd_set_prop_map[type]);
+	return -EINVAL;
 }
 
 static int mi_dsi_update_lhbm_cmd_63_C5_reg(struct dsi_panel *panel,
@@ -3011,37 +3021,46 @@ static int mi_dsi_panel_update_lhbm_white_param(struct dsi_panel * panel,
 
 	info = cur_mode->priv_info->cmd_update[cmd_update_index];
 	cmd_update_count = cur_mode->priv_info->cmd_update_count[cmd_update_index];
-	for (j = 0; j < cmd_update_count; j++) {
+	if (!info || !cmd_update_count) {
+		DISP_ERROR("[%s] missing 0xD0 LHBM update list for %s\n",
+			panel->type, cmd_set_prop_map[type]);
+		rc = -EINVAL;
+		goto exit;
+	}
+
+	for (j = 0; j < cmd_update_count; j++, info++) {
 		DISP_DEBUG("[%s] update [%s] mipi_address(0x%02X) index(%d) lenght(%d)\n",
 			panel->type, cmd_set_prop_map[info->type],
 			info->mipi_address, info->index, info->length);
-		if (info && info->mipi_address != 0xD0) {
-			DISP_ERROR("error mipi address (0x%02X)\n", info->mipi_address);
-			info++;
+		if (info->mipi_address != 0xD0)
 			continue;
-		} else {
-			if (level == 110) {
-				if(flat_mode!= 0) {
-					mi_dsi_panel_update_cmd_set(panel, cur_mode, type, info,
-					panel->mi_cfg.whitebuf_110_gir_on, sizeof(panel->mi_cfg.whitebuf_110_gir_on));
-				} else {
-					mi_dsi_panel_update_cmd_set(panel, cur_mode, type, info,
-					panel->mi_cfg.whitebuf_110_gir_off, sizeof(panel->mi_cfg.whitebuf_110_gir_off));
-				}
-			} else if (level == 500) {
+
+		if (level == 110) {
+			if(flat_mode!= 0) {
 				mi_dsi_panel_update_cmd_set(panel, cur_mode, type, info,
-					panel->mi_cfg.greenbuf_500nit, sizeof(panel->mi_cfg.greenbuf_500nit));
+				panel->mi_cfg.whitebuf_110_gir_on, sizeof(panel->mi_cfg.whitebuf_110_gir_on));
 			} else {
-				if(flat_mode!= 0) {
-					mi_dsi_panel_update_cmd_set(panel, cur_mode, type, info,
-					panel->mi_cfg.whitebuf_1000_gir_on, sizeof(panel->mi_cfg.whitebuf_1000_gir_on));
-				} else {
-					mi_dsi_panel_update_cmd_set(panel, cur_mode, type, info,
-					panel->mi_cfg.whitebuf_1000_gir_off, sizeof(panel->mi_cfg.whitebuf_1000_gir_off));
-				}
+				mi_dsi_panel_update_cmd_set(panel, cur_mode, type, info,
+				panel->mi_cfg.whitebuf_110_gir_off, sizeof(panel->mi_cfg.whitebuf_110_gir_off));
+			}
+		} else if (level == 500) {
+			mi_dsi_panel_update_cmd_set(panel, cur_mode, type, info,
+				panel->mi_cfg.greenbuf_500nit, sizeof(panel->mi_cfg.greenbuf_500nit));
+		} else {
+			if(flat_mode!= 0) {
+				mi_dsi_panel_update_cmd_set(panel, cur_mode, type, info,
+				panel->mi_cfg.whitebuf_1000_gir_on, sizeof(panel->mi_cfg.whitebuf_1000_gir_on));
+			} else {
+				mi_dsi_panel_update_cmd_set(panel, cur_mode, type, info,
+				panel->mi_cfg.whitebuf_1000_gir_off, sizeof(panel->mi_cfg.whitebuf_1000_gir_off));
 			}
 		}
+		goto exit;
 	}
+
+	DISP_ERROR("[%s] missing 0xD0 LHBM update entry for %s\n",
+		panel->type, cmd_set_prop_map[type]);
+	rc = -EINVAL;
 
 exit:
 	return rc;
