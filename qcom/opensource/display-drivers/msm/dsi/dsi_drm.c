@@ -625,6 +625,50 @@ int dsi_conn_get_lm_from_mode(void *display, const struct drm_display_mode *drm_
 	return panel_dsi_mode->priv_info->topology.num_lm;
 }
 
+static void dsi_m11a_override_roi_caps(struct dsi_display *display,
+		struct dsi_display_mode *mode, struct msm_mode_info *mode_info)
+{
+	struct msm_roi_caps *caps = &mode_info->roi_caps;
+	u32 profile;
+	u32 width_align;
+	u32 height_align;
+
+	if (!display || !display->panel || !mode || !mode->priv_info ||
+		mi_get_panel_id_by_dsi_panel(display->panel) != M11A_PANEL_PA ||
+		!mode->priv_info->roi_caps.enabled)
+		return;
+
+	profile = dsi_display_get_m11a_partial_update_profile();
+	if (profile == DSI_M11A_PU_DISABLED) {
+		memset(caps, 0, sizeof(*caps));
+		return;
+	}
+
+	height_align = mode->priv_info->dsc_enabled ?
+		mode->priv_info->dsc.config.slice_height :
+		mode->priv_info->roi_caps.align.height_pix_align;
+	if (!height_align)
+		height_align = 1;
+
+	if (profile == DSI_M11A_PU_DSC_SLICE && mode->priv_info->dsc_enabled)
+		width_align = mode->priv_info->dsc.config.slice_width;
+	else
+		width_align = mode->timing.h_active;
+
+	if (!width_align)
+		width_align = mode->priv_info->roi_caps.align.width_pix_align;
+
+	caps->enabled = true;
+	caps->merge_rois = false;
+	caps->num_roi = 1;
+	caps->align.xstart_pix_align = width_align;
+	caps->align.width_pix_align = width_align;
+	caps->align.ystart_pix_align = height_align;
+	caps->align.height_pix_align = height_align;
+	caps->align.min_width = width_align;
+	caps->align.min_height = height_align;
+}
+
 int dsi_conn_get_mode_info(struct drm_connector *connector,
 		const struct drm_display_mode *drm_mode,
 		struct msm_sub_mode *sub_mode,
@@ -704,6 +748,8 @@ int dsi_conn_get_mode_info(struct drm_connector *connector,
 		memcpy(&mode_info->roi_caps, &dsi_mode->priv_info->roi_caps,
 			sizeof(dsi_mode->priv_info->roi_caps));
 	}
+
+	dsi_m11a_override_roi_caps(dsi_display, dsi_mode, mode_info);
 
 	mode_info->allowed_mode_switches =
 		dsi_mode->priv_info->allowed_mode_switch;

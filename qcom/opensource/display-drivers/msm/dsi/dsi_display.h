@@ -31,6 +31,14 @@
 #define DSI_MODE_MATCH_FULL_TIMINGS (DSI_MODE_MATCH_ACTIVE_TIMINGS | DSI_MODE_MATCH_PORCH_TIMINGS)
 #define DSI_MODE_MATCH_DSC_CONFIG (1 << 2)
 
+enum dsi_m11a_partial_update_profile {
+	DSI_M11A_PU_DISABLED = 0,
+	DSI_M11A_PU_SAFE,
+	DSI_M11A_PU_DSC_SLICE,
+};
+
+u32 dsi_display_get_m11a_partial_update_profile(void);
+
 /*
  * DSI Validate Mode modifiers
  * @DSI_VALIDATE_FLAG_ALLOW_ADJUST:	Allow mode validation to also do fixup

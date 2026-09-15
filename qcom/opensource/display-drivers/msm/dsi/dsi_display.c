@@ -55,6 +55,19 @@ static struct dsi_display_boot_param boot_displays[MAX_DSI_ACTIVE_DISPLAY] = {
 	{.boot_param = dsi_display_secondary},
 };
 
+static uint m11a_partial_update_profile = DSI_M11A_PU_SAFE;
+module_param_named(m11a_partial_update_profile, m11a_partial_update_profile, uint, 0644);
+MODULE_PARM_DESC(m11a_partial_update_profile,
+	"M11A partial update profile: 0=disabled, 1=full-width DSC-safe, 2=DSC-slice");
+
+u32 dsi_display_get_m11a_partial_update_profile(void)
+{
+	if (m11a_partial_update_profile > DSI_M11A_PU_DSC_SLICE)
+		return DSI_M11A_PU_SAFE;
+
+	return m11a_partial_update_profile;
+}
+
 static void dsi_display_panel_id_notification(struct dsi_display *display);
 
 static const struct of_device_id dsi_display_dt_match[] = {
@@ -8644,6 +8657,8 @@ static int dsi_display_set_roi(struct dsi_display *display,
 {
 	struct dsi_display_mode *cur_mode;
 	struct msm_roi_caps *roi_caps;
+	struct msm_roi_list effective_rois;
+	struct msm_roi_list *active_rois = rois;
 	int rc = 0;
 	int i;
 
@@ -8651,19 +8666,49 @@ static int dsi_display_set_roi(struct dsi_display *display,
 		return -EINVAL;
 
 	cur_mode = display->panel->cur_mode;
-	if (!cur_mode)
+	if (!cur_mode || !cur_mode->priv_info)
 		return 0;
 
 	roi_caps = &cur_mode->priv_info->roi_caps;
 	if (!roi_caps->enabled)
 		return 0;
 
+	if (mi_get_panel_id_by_dsi_panel(display->panel) == M11A_PANEL_PA) {
+		u32 profile = dsi_display_get_m11a_partial_update_profile();
+
+		if (profile == DSI_M11A_PU_DISABLED) {
+			memset(&effective_rois, 0, sizeof(effective_rois));
+			active_rois = &effective_rois;
+		} else if (profile == DSI_M11A_PU_SAFE && rois->num_rects) {
+			u32 slice_h = cur_mode->priv_info->dsc_enabled ?
+				cur_mode->priv_info->dsc.config.slice_height : 1;
+			u32 y2;
+
+			if (!slice_h)
+				slice_h = 1;
+
+			effective_rois = *rois;
+			effective_rois.num_rects = 1;
+			effective_rois.roi[0].x1 = 0;
+			effective_rois.roi[0].x2 = cur_mode->timing.h_active;
+			effective_rois.roi[0].y1 =
+				(effective_rois.roi[0].y1 / slice_h) * slice_h;
+
+			y2 = ((u32)effective_rois.roi[0].y2 + slice_h - 1) /
+				slice_h * slice_h;
+			if (y2 > cur_mode->timing.v_active)
+				y2 = cur_mode->timing.v_active;
+			effective_rois.roi[0].y2 = y2;
+			active_rois = &effective_rois;
+		}
+	}
+
 	display_for_each_ctrl(i, display) {
 		struct dsi_display_ctrl *ctrl = &display->ctrl[i];
 		struct dsi_rect ctrl_roi;
 		bool changed = false;
 
-		rc = dsi_display_calc_ctrl_roi(display, ctrl, rois, &ctrl_roi);
+		rc = dsi_display_calc_ctrl_roi(display, ctrl, active_rois, &ctrl_roi);
 		if (rc) {
 			DSI_ERR("dsi_display_calc_ctrl_roi failed rc %d\n", rc);
 			return rc;
