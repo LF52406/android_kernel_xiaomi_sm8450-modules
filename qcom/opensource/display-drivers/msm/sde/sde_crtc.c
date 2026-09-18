@@ -837,6 +837,99 @@ static int _sde_crtc_set_roi_v1(struct drm_crtc_state *state,
 	return 0;
 }
 
+static bool _sde_crtc_dest_scaler_pu_enabled(
+		const struct sde_crtc_state *cstate)
+{
+	bool enabled = false;
+	int i;
+
+	if (!cstate || !cstate->num_ds_enabled)
+		return false;
+
+	for (i = 0; i < cstate->num_ds; i++) {
+		if (!(cstate->ds_cfg[i].flags & SDE_DRM_DESTSCALER_ENABLE))
+			continue;
+
+		enabled = true;
+		if (!(cstate->ds_cfg[i].flags & SDE_DRM_DESTSCALER_PU_ENABLE))
+			return false;
+	}
+
+	return enabled;
+}
+
+static bool _sde_crtc_scaled_roi_axis_valid(u32 crtc_start, u32 crtc_end,
+		u32 conn_start, u32 conn_end, u32 crtc_size, u32 conn_size,
+		u32 start_align, u32 size_align, u32 min_size)
+{
+	u32 scaled_start, scaled_end, conn_span;
+
+	if (!crtc_size || !conn_size || crtc_start >= crtc_end ||
+		crtc_end > crtc_size || conn_start >= conn_end ||
+		conn_end > conn_size)
+		return false;
+
+	start_align = max_t(u32, start_align, 1);
+	size_align = max_t(u32, size_align, 1);
+	min_size = max_t(u32, min_size, 1);
+	conn_span = conn_end - conn_start;
+
+	if (conn_start % start_align || conn_span % size_align ||
+		conn_span < min_size)
+		return false;
+
+	scaled_start = div_u64((u64)crtc_start * conn_size, crtc_size);
+	scaled_end = DIV_ROUND_UP_ULL((u64)crtc_end * conn_size, crtc_size);
+
+	return conn_start <= scaled_start && conn_end >= scaled_end;
+}
+
+static bool _sde_crtc_validate_scaled_conn_rois(struct sde_crtc *sde_crtc,
+		struct sde_crtc_state *cstate, struct drm_crtc_state *state,
+		const struct msm_roi_caps *caps, const struct msm_roi_list *conn_rois)
+{
+	u32 mixer_width = 0, mixer_height = 0;
+	u32 panel_width, panel_height;
+	int i;
+
+	if (!sde_crtc || !cstate || !state || !caps || !conn_rois ||
+		!_sde_crtc_dest_scaler_pu_enabled(cstate) ||
+		conn_rois->num_rects != cstate->user_roi_list.num_rects)
+		return false;
+
+	for (i = 0; i < sde_crtc->num_mixers; i++) {
+		mixer_width = max_t(u32, mixer_width,
+			cstate->lm_bounds[i].x + cstate->lm_bounds[i].w);
+		mixer_height = max_t(u32, mixer_height,
+			cstate->lm_bounds[i].y + cstate->lm_bounds[i].h);
+	}
+
+	panel_width = state->adjusted_mode.hdisplay;
+	panel_height = state->adjusted_mode.vdisplay;
+	if (!mixer_width || !mixer_height || !panel_width || !panel_height ||
+		(mixer_width == panel_width && mixer_height == panel_height))
+		return false;
+
+	for (i = 0; i < conn_rois->num_rects; i++) {
+		const struct drm_clip_rect *crtc = &cstate->user_roi_list.roi[i];
+		const struct drm_clip_rect *conn = &conn_rois->roi[i];
+
+		if (!_sde_crtc_scaled_roi_axis_valid(crtc->x1, crtc->x2,
+				conn->x1, conn->x2, mixer_width, panel_width,
+				caps->align.xstart_pix_align,
+				caps->align.width_pix_align,
+				caps->align.min_width) ||
+			!_sde_crtc_scaled_roi_axis_valid(crtc->y1, crtc->y2,
+				conn->y1, conn->y2, mixer_height, panel_height,
+				caps->align.ystart_pix_align,
+				caps->align.height_pix_align,
+				caps->align.min_height))
+			return false;
+	}
+
+	return true;
+}
+
 static int _sde_crtc_set_crtc_roi(struct drm_crtc *crtc,
 		struct drm_crtc_state *state)
 {
@@ -895,15 +988,11 @@ static int _sde_crtc_set_crtc_roi(struct drm_crtc *crtc,
 		if (!mode_info.roi_caps.enabled)
 			continue;
 
-		/*
-		 * current driver only supports same connector and crtc size,
-		 * but if support for different sizes is added, driver needs
-		 * to check the connector roi here to make sure is full screen
-		 * for dsc 3d-mux topology that doesn't support partial update.
-		 */
 		if (memcmp(&sde_conn_state->rois, &crtc_state->user_roi_list,
-				sizeof(crtc_state->user_roi_list))) {
-			SDE_ERROR("%s: crtc -> conn roi scaling unsupported\n",
+				sizeof(crtc_state->user_roi_list)) &&
+			!_sde_crtc_validate_scaled_conn_rois(sde_crtc, crtc_state,
+				state, &mode_info.roi_caps, &sde_conn_state->rois)) {
+			SDE_ERROR("%s: invalid crtc -> connector roi scaling\n",
 					sde_crtc->name);
 			return -EINVAL;
 		}
@@ -1005,16 +1094,17 @@ static int _sde_crtc_set_lm_roi(struct drm_crtc *crtc,
 			lm_roi->x, lm_roi->y, lm_roi->w, lm_roi->h);
 
 	/*
-	 * partial update is not supported with 3dmux dsc or dest scaler.
-	 * hence, crtc roi must match the mixer dimensions.
+	 * 3D-merge DSC still requires a full mixer ROI. Destination scaler
+	 * partial update is allowed only when userspace explicitly enables
+	 * the PU-capable destination-scaler configuration.
 	 */
-	if (crtc_state->num_ds_enabled ||
+	if (((crtc_state->num_ds_enabled &&
+			!_sde_crtc_dest_scaler_pu_enabled(crtc_state)) ||
 		sde_rm_topology_is_group(&sde_kms->rm, state,
-				SDE_RM_TOPOLOGY_GROUP_3DMERGE_DSC)) {
-		if (memcmp(lm_roi, lm_bounds, sizeof(struct sde_rect))) {
-			SDE_ERROR("Unsupported: Dest scaler/3d mux DSC + PU\n");
-			return -EINVAL;
-		}
+				SDE_RM_TOPOLOGY_GROUP_3DMERGE_DSC)) &&
+		memcmp(lm_roi, lm_bounds, sizeof(struct sde_rect))) {
+		SDE_ERROR("Unsupported: destination scaler/3d merge DSC + PU\n");
+		return -EINVAL;
 	}
 
 	/* if any dimension is zero, clear all dimensions for clarity */
