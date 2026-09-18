@@ -55,7 +55,7 @@ static struct dsi_display_boot_param boot_displays[MAX_DSI_ACTIVE_DISPLAY] = {
 	{.boot_param = dsi_display_secondary},
 };
 
-static uint m11a_partial_update_profile = DSI_M11A_PU_SAFE;
+static uint m11a_partial_update_profile = DSI_M11A_PU_DSC_SLICE;
 module_param_named(m11a_partial_update_profile, m11a_partial_update_profile, uint, 0644);
 MODULE_PARM_DESC(m11a_partial_update_profile,
 	"M11A partial update profile: 0=disabled, 1=full-width DSC-safe, 2=DSC-slice");
