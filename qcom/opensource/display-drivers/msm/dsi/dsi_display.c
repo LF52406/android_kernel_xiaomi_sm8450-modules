@@ -8679,26 +8679,68 @@ static int dsi_display_set_roi(struct dsi_display *display,
 		if (profile == DSI_M11A_PU_DISABLED) {
 			memset(&effective_rois, 0, sizeof(effective_rois));
 			active_rois = &effective_rois;
-		} else if (profile == DSI_M11A_PU_SAFE && rois->num_rects) {
+		} else if (rois->num_rects) {
+			u32 h_active = cur_mode->timing.h_active;
+			u32 v_active = cur_mode->timing.v_active;
+			u32 slice_w = cur_mode->priv_info->dsc_enabled ?
+				cur_mode->priv_info->dsc.config.slice_width : h_active;
 			u32 slice_h = cur_mode->priv_info->dsc_enabled ?
 				cur_mode->priv_info->dsc.config.slice_height : 1;
-			u32 y2;
+			u32 x1 = h_active, y1 = v_active, x2 = 0, y2 = 0;
+			u32 x_align, valid = 0;
 
+			if (!slice_w)
+				slice_w = h_active;
 			if (!slice_h)
 				slice_h = 1;
 
-			effective_rois = *rois;
-			effective_rois.num_rects = 1;
-			effective_rois.roi[0].x1 = 0;
-			effective_rois.roi[0].x2 = cur_mode->timing.h_active;
-			effective_rois.roi[0].y1 =
-				(effective_rois.roi[0].y1 / slice_h) * slice_h;
+			x_align = profile == DSI_M11A_PU_DSC_SLICE ?
+				slice_w : h_active;
+			if (!x_align)
+				x_align = 1;
 
-			y2 = ((u32)effective_rois.roi[0].y2 + slice_h - 1) /
-				slice_h * slice_h;
-			if (y2 > cur_mode->timing.v_active)
-				y2 = cur_mode->timing.v_active;
-			effective_rois.roi[0].y2 = y2;
+			memset(&effective_rois, 0, sizeof(effective_rois));
+			for (i = 0; i < rois->num_rects && i < MSM_MAX_ROI; i++) {
+				u32 rx1 = min_t(u32, rois->roi[i].x1, h_active);
+				u32 ry1 = min_t(u32, rois->roi[i].y1, v_active);
+				u32 rx2 = min_t(u32, rois->roi[i].x2, h_active);
+				u32 ry2 = min_t(u32, rois->roi[i].y2, v_active);
+
+				if (rx1 >= rx2 || ry1 >= ry2)
+					continue;
+
+				x1 = min(x1, rx1);
+				y1 = min(y1, ry1);
+				x2 = max(x2, rx2);
+				y2 = max(y2, ry2);
+				valid++;
+			}
+
+			if (valid) {
+				x1 = (x1 / x_align) * x_align;
+				x2 = DIV_ROUND_UP(x2, x_align) * x_align;
+				y1 = (y1 / slice_h) * slice_h;
+				y2 = DIV_ROUND_UP(y2, slice_h) * slice_h;
+
+				if (x2 > h_active)
+					x2 = h_active;
+				if (y2 > v_active)
+					y2 = v_active;
+
+				if (x2 <= x1 || y2 <= y1) {
+					x1 = 0;
+					y1 = 0;
+					x2 = h_active;
+					y2 = v_active;
+				}
+
+				effective_rois.num_rects = 1;
+				effective_rois.roi[0].x1 = x1;
+				effective_rois.roi[0].y1 = y1;
+				effective_rois.roi[0].x2 = x2;
+				effective_rois.roi[0].y2 = y2;
+			}
+
 			active_rois = &effective_rois;
 		}
 	}
