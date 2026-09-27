@@ -639,10 +639,13 @@ static void dsi_m11a_override_roi_caps(struct dsi_display *display,
 		return;
 
 	profile = dsi_display_get_m11a_partial_update_profile();
-	if (profile == DSI_M11A_PU_DISABLED) {
-		memset(caps, 0, sizeof(*caps));
-		return;
-	}
+	/*
+	 * OFF is a composition policy, not a different panel capability.
+	 * DRM/HWC cache mode capabilities, so keep the advertised SAFE geometry
+	 * stable across runtime 0 <-> 1 changes. SDE forces full-frame while OFF.
+	 */
+	if (profile == DSI_M11A_PU_DISABLED)
+		profile = DSI_M11A_PU_SAFE;
 
 	height_align = mode->priv_info->dsc_enabled ?
 		mode->priv_info->dsc.config.slice_height :

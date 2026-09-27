@@ -837,6 +837,31 @@ static int _sde_crtc_set_roi_v1(struct drm_crtc_state *state,
 	return 0;
 }
 
+static bool _sde_crtc_m11a_force_full_frame(struct sde_crtc_state *crtc_state)
+{
+	int i;
+
+	if (!crtc_state || dsi_display_m11a_partial_update_enabled())
+		return false;
+
+	/*
+	 * The runtime parameter is mondrian-specific. Limit the policy override
+	 * to the native M11A command-mode geometry and an attached DSI connector.
+	 */
+	if (crtc_state->base.adjusted_mode.hdisplay != 1440 ||
+		crtc_state->base.adjusted_mode.vdisplay != 3200)
+		return false;
+
+	for (i = 0; i < crtc_state->num_connectors; i++) {
+		struct drm_connector *conn = crtc_state->connectors[i];
+
+		if (conn && conn->connector_type == DRM_MODE_CONNECTOR_DSI)
+			return true;
+	}
+
+	return false;
+}
+
 static int _sde_crtc_set_crtc_roi(struct drm_crtc *crtc,
 		struct drm_crtc_state *state)
 {
@@ -857,6 +882,47 @@ static int _sde_crtc_set_crtc_roi(struct drm_crtc *crtc,
 	sde_crtc = to_sde_crtc(crtc);
 	crtc_state = to_sde_crtc_state(state);
 	crtc_roi = &crtc_state->crtc_roi;
+
+	/*
+	 * profile 0 means Partial Update OFF. Resolve that policy here, before
+	 * mixer/DSC/encoder programming, instead of expanding a partial stream
+	 * later in DSI. This also makes a 0 <-> 1 change safe for an in-flight
+	 * frame: DSI never changes geometry after SDE has prepared it.
+	 */
+	if (_sde_crtc_m11a_force_full_frame(crtc_state)) {
+		/*
+		 * Connector pre-kickoff programs DSI from connector-state ROI, while
+		 * LM/encoder programming uses the CRTC ROI. Clone each attached
+		 * connector into this atomic transaction and clear both views so the
+		 * entire commit has one full-frame geometry.
+		 */
+		for (i = 0; i < crtc_state->num_connectors; i++) {
+			struct drm_connector *full_conn = crtc_state->connectors[i];
+			struct drm_connector_state *full_conn_state;
+			struct sde_connector_state *full_sde_conn_state;
+
+			if (!full_conn)
+				continue;
+
+			full_conn_state = drm_atomic_get_connector_state(
+					state->state, full_conn);
+			if (IS_ERR(full_conn_state))
+				return PTR_ERR(full_conn_state);
+
+			full_sde_conn_state = to_sde_connector_state(full_conn_state);
+			memset(&full_sde_conn_state->rois, 0,
+				sizeof(full_sde_conn_state->rois));
+		}
+
+		memset(&crtc_state->user_roi_list, 0,
+			sizeof(crtc_state->user_roi_list));
+		memset(&crtc_state->cached_user_roi_list, 0,
+			sizeof(crtc_state->cached_user_roi_list));
+		memset(crtc_roi, 0, sizeof(*crtc_roi));
+		SDE_DEBUG("%s: M11A partial update disabled, forcing full frame\n",
+			sde_crtc->name);
+		return 0;
+	}
 
 	is_crtc_roi_dirty = sde_crtc_is_crtc_roi_dirty(state);
 
