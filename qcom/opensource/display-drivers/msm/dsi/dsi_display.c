@@ -55,6 +55,25 @@ static struct dsi_display_boot_param boot_displays[MAX_DSI_ACTIVE_DISPLAY] = {
 	{.boot_param = dsi_display_secondary},
 };
 
+static uint m11a_partial_update_profile = DSI_M11A_PU_SAFE;
+module_param_named(m11a_partial_update_profile, m11a_partial_update_profile, uint, 0644);
+MODULE_PARM_DESC(m11a_partial_update_profile,
+	"M11A partial update profile: 0=disabled, 1=full-width DSC-safe, 2=DSC-slice");
+
+u32 dsi_display_get_m11a_partial_update_profile(void)
+{
+	if (m11a_partial_update_profile > DSI_M11A_PU_DSC_SLICE)
+		return DSI_M11A_PU_SAFE;
+
+	return m11a_partial_update_profile;
+}
+
+bool dsi_display_m11a_partial_update_enabled(void)
+{
+	return dsi_display_get_m11a_partial_update_profile() !=
+		DSI_M11A_PU_DISABLED;
+}
+
 static void dsi_display_panel_id_notification(struct dsi_display *display);
 
 static const struct of_device_id dsi_display_dt_match[] = {
@@ -8651,13 +8670,18 @@ static int dsi_display_set_roi(struct dsi_display *display,
 		return -EINVAL;
 
 	cur_mode = display->panel->cur_mode;
-	if (!cur_mode)
+	if (!cur_mode || !cur_mode->priv_info)
 		return 0;
 
 	roi_caps = &cur_mode->priv_info->roi_caps;
 	if (!roi_caps->enabled)
 		return 0;
 
+	/*
+	 * M11A policy is resolved before LM/DSC programming. Never widen or
+	 * otherwise rewrite an ROI here: a frame that was already prepared
+	 * under the previous policy must complete with the same geometry.
+	 */
 	display_for_each_ctrl(i, display) {
 		struct dsi_display_ctrl *ctrl = &display->ctrl[i];
 		struct dsi_rect ctrl_roi;

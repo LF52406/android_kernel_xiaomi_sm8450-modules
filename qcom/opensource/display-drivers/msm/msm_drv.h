@@ -927,6 +927,9 @@ struct msm_drm_thread {
 	struct kthread_worker worker;
 };
 
+/* Mondrian M11A runtime partial-update policy shared by DSI and SDE. */
+bool dsi_display_m11a_partial_update_enabled(void);
+
 struct msm_drm_private {
 
 	struct drm_device *dev;
