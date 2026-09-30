@@ -55,17 +55,20 @@ static struct dsi_display_boot_param boot_displays[MAX_DSI_ACTIVE_DISPLAY] = {
 	{.boot_param = dsi_display_secondary},
 };
 
-static uint m11a_partial_update_profile = DSI_M11A_PU_SAFE;
+/* Opt-in only: no partial frame may precede userspace policy restoration. */
+static uint m11a_partial_update_profile = DSI_M11A_PU_DISABLED;
 module_param_named(m11a_partial_update_profile, m11a_partial_update_profile, uint, 0644);
 MODULE_PARM_DESC(m11a_partial_update_profile,
 	"M11A partial update profile: 0=disabled, 1=full-width DSC-safe, 2=DSC-slice");
 
 u32 dsi_display_get_m11a_partial_update_profile(void)
 {
-	if (m11a_partial_update_profile > DSI_M11A_PU_DSC_SLICE)
-		return DSI_M11A_PU_SAFE;
+	u32 profile = READ_ONCE(m11a_partial_update_profile);
 
-	return m11a_partial_update_profile;
+	if (profile > DSI_M11A_PU_DSC_SLICE)
+		return DSI_M11A_PU_DISABLED;
+
+	return profile;
 }
 
 bool dsi_display_m11a_partial_update_enabled(void)

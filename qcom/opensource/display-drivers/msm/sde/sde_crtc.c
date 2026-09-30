@@ -886,10 +886,21 @@ static int _sde_crtc_set_crtc_roi(struct drm_crtc *crtc,
 	/*
 	 * profile 0 means Partial Update OFF. Resolve that policy here, before
 	 * mixer/DSC/encoder programming, instead of expanding a partial stream
-	 * later in DSI. This also makes a 0 <-> 1 change safe for an in-flight
-	 * frame: DSI never changes geometry after SDE has prepared it.
+	 * later in DSI. HWC must prepare and retire a full composition before
+	 * requesting profile 0; this override cannot reconstruct cropped planes.
 	 */
 	if (_sde_crtc_m11a_force_full_frame(crtc_state)) {
+		/* SSPP output rectangles depend on the ROI dirty bit. A retained
+		 * partial ROI also needs reprogramming when no new blob was supplied.
+		 */
+		if (crtc_state->user_roi_list.num_rects ||
+				crtc_state->cached_user_roi_list.num_rects ||
+				!sde_kms_rect_is_null(crtc_roi)) {
+			rc = msm_property_set_dirty(&sde_crtc->property_info,
+					&crtc_state->property_state, CRTC_PROP_ROI_V1);
+			if (rc)
+				return rc;
+		}
 		/*
 		 * Connector pre-kickoff programs DSI from connector-state ROI, while
 		 * LM/encoder programming uses the CRTC ROI. Clone each attached
