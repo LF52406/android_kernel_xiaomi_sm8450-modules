@@ -2797,6 +2797,7 @@ static void sde_crtc_vblank_notify_work(struct kthread_work *work)
 {
 	struct drm_crtc *crtc;
 	struct sde_crtc *sde_crtc;
+	unsigned long flags;
 	struct sde_crtc_vblank_event *vevent = container_of(work,
 					struct sde_crtc_vblank_event, work);
 
@@ -2810,9 +2811,9 @@ static void sde_crtc_vblank_notify_work(struct kthread_work *work)
 
 	sde_crtc_vblank_notify(vevent->crtc, vevent->ts);
 
-	spin_lock(&sde_crtc->event_spin_lock);
+	spin_lock_irqsave(&sde_crtc->event_spin_lock, flags);
 	list_add_tail(&vevent->list, &sde_crtc->vblank_event_list);
-	spin_unlock(&sde_crtc->event_spin_lock);
+	spin_unlock_irqrestore(&sde_crtc->event_spin_lock, flags);
 }
 
 static void sde_crtc_vblank_cb(void *data, ktime_t ts)

@@ -4070,6 +4070,7 @@ lim_fill_session_params(struct mac_context *mac_ctx,
 		     session->ssId.length);
 
 	session->force_24ghz_in_ht20 = req->force_24ghz_in_ht20;
+	session->ssidHidden = req->is_ssid_hidden;
 
 	status = lim_fill_pe_session(mac_ctx, session, bss_desc);
 	if (QDF_IS_STATUS_ERROR(status)) {

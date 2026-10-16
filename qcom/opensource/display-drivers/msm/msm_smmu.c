@@ -216,6 +216,11 @@ static void msm_smmu_destroy(struct msm_mmu *mmu)
 {
 	struct msm_smmu *smmu = to_msm_smmu(mmu);
 	struct platform_device *pdev = to_platform_device(smmu->client_dev);
+	struct iommu_domain *domain = smmu->client_dev ?
+		iommu_get_domain_for_dev(smmu->client_dev) : NULL;
+
+	if (domain)
+		iommu_set_fault_handler(domain, NULL, NULL);
 
 	if (smmu->client_dev)
 		platform_device_unregister(pdev);

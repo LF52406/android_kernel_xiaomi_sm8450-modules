@@ -191,14 +191,13 @@ int cam_packet_util_get_kmd_buffer(struct cam_packet *packet,
 	}
 
 	remain_len -= (size_t)cmd_desc->offset;
+	/* The KMD offset must fit both mapped memory and the descriptor. */
 	if ((size_t)packet->kmd_cmd_buf_offset >= remain_len ||
-		(size_t)packet->kmd_cmd_buf_offset >= cmd_desc->size ||
-		(size_t)(cmd_desc->size - packet->kmd_cmd_buf_offset) >=
-		(remain_len - packet->kmd_cmd_buf_offset)) {
+	    (size_t)packet->kmd_cmd_buf_offset >= (size_t)cmd_desc->size) {
 		CAM_ERR(CAM_UTIL,
-			"Invalid kmd cmd buf offset: %d remain_len: %zu cmd offset: %d size: %d length: %d",
-			packet->kmd_cmd_buf_offset, remain_len,
-			cmd_desc->offset, cmd_desc->size, cmd_desc->length);
+			"Invalid kmd offset: %zu, mapped remaining: %zu, descriptor size: %u",
+			(size_t)packet->kmd_cmd_buf_offset, remain_len,
+			cmd_desc->size);
 		rc = -EINVAL;
 		goto rel_kmd_buf;
 	}
