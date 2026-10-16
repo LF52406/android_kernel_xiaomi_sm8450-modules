@@ -17,6 +17,10 @@
 #include <linux/netdevice.h>
 #include <linux/ip.h>
 #include <linux/ipv6.h>
+#include <linux/jiffies.h>
+#include <linux/module.h>
+#include <linux/seqlock.h>
+#include <net/inet_sock.h>
 #include <net/ip6_checksum.h>
 #include "rmnet_config.h"
 #include "rmnet_map.h"
@@ -1231,6 +1235,98 @@ int rmnet_map_process_next_hdr_packet(struct sk_buff *skb,
 long rmnet_agg_time_limit __read_mostly = 1000000L;
 long rmnet_agg_bypass_time __read_mostly = 10000000L;
 
+/* Userspace renews this lease only while an opted-in game is in the
+ * foreground. Expiry restores normal behaviour after a service crash.
+ */
+#define RMNET_GAME_LEASE_MS 15000
+#define RMNET_GAME_MIN_UID 10000
+
+static DEFINE_SEQLOCK(rmnet_game_lock);
+static int rmnet_game_uid = -1;
+static unsigned long rmnet_game_expires;
+static atomic64_t rmnet_game_flushes = ATOMIC64_INIT(0);
+
+static int rmnet_game_active_uid(void)
+{
+	unsigned long expires;
+	unsigned int seq;
+	int uid;
+
+	do {
+		seq = read_seqbegin(&rmnet_game_lock);
+		uid = rmnet_game_uid;
+		expires = rmnet_game_expires;
+	} while (read_seqretry(&rmnet_game_lock, seq));
+
+	return uid >= 0 && time_before(jiffies, expires) ? uid : -1;
+}
+
+static int rmnet_game_uid_set(const char *val, const struct kernel_param *kp)
+{
+	bool release = !strncmp(val, "off ", 4);
+	int uid, ret;
+
+	ret = kstrtoint(val + (release ? 4 : 0), 10, &uid);
+	if (ret)
+		return ret;
+	if (uid < RMNET_GAME_MIN_UID && (release || uid != -1))
+		return -EINVAL;
+
+	write_seqlock_bh(&rmnet_game_lock);
+	/* A departing user's service must not clear the next user's request. */
+	if (!release || rmnet_game_uid == uid) {
+		rmnet_game_uid = release ? -1 : uid;
+		rmnet_game_expires = jiffies + msecs_to_jiffies(RMNET_GAME_LEASE_MS);
+	}
+	write_sequnlock_bh(&rmnet_game_lock);
+	return 0;
+}
+
+static int rmnet_game_uid_get(char *buf, const struct kernel_param *kp)
+{
+	return scnprintf(buf, PAGE_SIZE, "%d\n", rmnet_game_active_uid());
+}
+
+static const struct kernel_param_ops rmnet_game_uid_ops = {
+	.set = rmnet_game_uid_set,
+	.get = rmnet_game_uid_get,
+};
+module_param_cb(game_low_latency_uid, &rmnet_game_uid_ops, NULL, 0600);
+MODULE_PARM_DESC(game_low_latency_uid,
+		"Android game UID to bypass UDP aggregation; -1 disables; renew within 15s");
+
+static int rmnet_game_flushes_get(char *buf, const struct kernel_param *kp)
+{
+	return scnprintf(buf, PAGE_SIZE, "%lld\n",
+			 (long long)atomic64_read(&rmnet_game_flushes));
+}
+
+static const struct kernel_param_ops rmnet_game_flushes_ops = {
+	.get = rmnet_game_flushes_get,
+};
+module_param_cb(game_low_latency_flushes, &rmnet_game_flushes_ops, NULL, 0444);
+MODULE_PARM_DESC(game_low_latency_flushes,
+		"Game UDP packets sent without waiting for uplink aggregation");
+
+static bool rmnet_game_should_flush(const struct sk_buff *skb)
+{
+	struct sock *sk;
+	int uid = rmnet_game_active_uid();
+
+	if (uid < 0 || skb_is_gso(skb))
+		return false;
+
+	sk = skb_to_full_sk(skb);
+	if (!sk || !sk_fullsock(sk) ||
+	    (sk->sk_family != AF_INET && sk->sk_family != AF_INET6) ||
+	    sk->sk_protocol != IPPROTO_UDP ||
+	    !uid_eq(sk->sk_uid, make_kuid(&init_user_ns, uid)))
+		return false;
+
+	atomic64_inc(&rmnet_game_flushes);
+	return true;
+}
+
 int rmnet_map_tx_agg_skip(struct sk_buff *skb, int offset)
 {
 	u8 *packet_start = skb->data + offset;
@@ -1472,8 +1568,9 @@ new_packet:
 	memcpy(&last, &state->agg_last, sizeof(last));
 	ktime_get_real_ts64(&state->agg_last);
 
-	if ((port->data_format & RMNET_EGRESS_FORMAT_PRIORITY) &&
-	    (RMNET_LLM(skb->priority) || RMNET_APS_LLB(skb->priority))) {
+	if (rmnet_game_should_flush(skb) ||
+	    ((port->data_format & RMNET_EGRESS_FORMAT_PRIORITY) &&
+	     (RMNET_LLM(skb->priority) || RMNET_APS_LLB(skb->priority)))) {
 		/* Send out any aggregated SKBs we have */
 		rmnet_map_send_agg_skb(state);
 		/* Send out the priority SKB. Not holding agg_lock anymore */
